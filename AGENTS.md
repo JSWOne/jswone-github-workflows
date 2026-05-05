@@ -19,6 +19,12 @@ Each workflow should be implemented as a GitHub Actions workflow file in `.githu
 - Follow GitHub Actions best practices
 - Include proper triggers, jobs, and steps
 
+## Pre-commit Workflow Validation
+Before committing any workflow changes:
+1. **YAML Lint Check** — Run `yamllint` or similar tool to validate YAML syntax and catch indentation errors
+2. **Dry-run in test-playground** — Copy the workflow to `test-playground/` and trigger it manually to encounter and solve edge cases before committing
+3. **Workflow must pass linting and dry-run** before staging and committing
+
 ## Commit Messages
 - Use conventional commit messages when appropriate
 - Be descriptive about what was changed
