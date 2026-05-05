@@ -1,6 +1,6 @@
-# Session Workflow Rules
+# Agent Instructions for JSWOne GitHub Workflows Repository
 
-## Branch Management
+## Session Workflow Rules
 - **Always create a new branch** for each new workflow implementation
 - Never commit/push directly to the main branch
 - Branch naming convention: `feature/workflow-[workflow-name]` or `chore/workflow-[workflow-name]`

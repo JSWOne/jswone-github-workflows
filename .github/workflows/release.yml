@@ -1,0 +1,169 @@
+---
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - master-gke
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type (major/minor/patch)'
+        required: true
+        default: 'minor'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+env:
+  LINES_THRESHOLD: 500
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new_tag: ${{ steps.version_bump.outputs.new_tag }}
+      release_url: ${{ steps.create_release.outputs.url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine trigger type
+        id: trigger
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "type=manual" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo "type=tag" >> $GITHUB_OUTPUT
+            else
+              echo "type=branch" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          if [[ "${{ steps.trigger.outputs.type }}" == "manual" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "previous_tag=" >> $GITHUB_OUTPUT
+          else
+            previous_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            echo "previous_tag=$previous_tag" >> $GITHUB_OUTPUT
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Calculate lines changed
+        id: diff_stats
+        run: |
+          if [[ "${{ steps.trigger.outputs.type }}" == "manual" ]]; then
+            echo "lines_changed=0" >> $GITHUB_OUTPUT
+            echo "bump_type=${{ github.event.inputs.version_bump }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.trigger.outputs.type }}" == "tag" ]]; then
+            echo "lines_changed=0" >> $GITHUB_OUTPUT
+            echo "bump_type=patch" >> $GITHUB_OUTPUT
+          else
+            if [[ -z "${{ steps.prev_tag.outputs.previous_tag }}" ]]; then
+              echo "lines_changed=0" >> $GITHUB_OUTPUT
+              echo "bump_type=minor" >> $GITHUB_OUTPUT
+            else
+              total_lines=$(
+                git diff --stat \
+                  ${{ steps.prev_tag.outputs.previous_tag }}..HEAD \
+                  -- '*.yml' '*.yaml' '*.json' '*.ts' '*.js' \
+                  -- '*.py' '*.go' '*.java' \
+                  | tail -1 \
+                  | awk '{print $4}' \
+                  | tr -d ','
+              )
+              if [[ -z "$total_lines" ]]; then
+                total_lines=0
+              fi
+              echo "lines_changed=$total_lines" >> $GITHUB_OUTPUT
+
+              threshold=${{ env.LINES_THRESHOLD }}
+              if [[ "$total_lines" -gt "$threshold" ]]; then
+                echo "bump_type=major" >> $GITHUB_OUTPUT
+              else
+                echo "bump_type=minor" >> $GITHUB_OUTPUT
+              fi
+            fi
+          fi
+
+      - name: Bump version
+        id: version_bump
+        run: |
+          if [[ "${{ steps.trigger.outputs.type }}" == "tag" ]]; then
+            current_tag="${GITHUB_REF#refs/tags/}"
+          elif [[ "${{ steps.trigger.outputs.type }}" == "manual" ]]; then
+            if [[ -n "${{ steps.prev_tag.outputs.previous_tag }}" ]]; then
+              current_tag="${{ steps.prev_tag.outputs.previous_tag }}"
+            else
+              current_tag="v0.0.0"
+            fi
+          else
+            if [[ -n "${{ steps.prev_tag.outputs.previous_tag }}" ]]; then
+              current_tag="${{ steps.prev_tag.outputs.previous_tag }}"
+            else
+              current_tag="v0.0.0"
+            fi
+          fi
+
+          IFS='.' read -r major minor patch <<< "${current_tag#v}"
+
+          case "${{ steps.diff_stats.outputs.bump_type }}" in
+            major)
+              new_major=$((major + 1))
+              new_minor=0
+              new_patch=0
+              ;;
+            minor)
+              new_major=$major
+              new_minor=$((minor + 1))
+              new_patch=0
+              ;;
+            patch)
+              new_major=$major
+              new_minor=$minor
+              new_patch=$((patch + 1))
+              ;;
+          esac
+
+          new_tag="v${new_major}.${new_minor}.${new_patch}"
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+
+      - name: Create tag (skip for tag push)
+        if: steps.trigger.outputs.type != 'tag'
+        run: git tag ${{ steps.version_bump.outputs.new_tag }}
+
+      - name: Push tag (skip for tag push)
+        if: steps.trigger.outputs.type != 'tag'
+        run: |
+          git push origin ${{ steps.version_bump.outputs.new_tag }}
+
+      - name: Create Release
+        id: create_release
+        uses: release-drafter/release-drafter@v6
+        with:
+          tag: ${{ steps.version_bump.outputs.new_tag }}
+          name: Release ${{ steps.version_bump.outputs.new_tag }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print release info
+        run: |
+          echo "Release created: ${{ steps.version_bump.outputs.new_tag }}"
+          echo "Lines changed: ${{ steps.diff_stats.outputs.lines_changed }}"
+          echo "Bump type: ${{ steps.diff_stats.outputs.bump_type }}"
+          echo "Release URL: ${{ steps.create_release.outputs.url }}"
