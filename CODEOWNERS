@@ -1,0 +1,5 @@
+# CODEOWNERS file - defines who owns what in the repository
+# Format: pattern @username
+
+# Default owners for everything in the repository
+* @shubham-bansal-jswone
