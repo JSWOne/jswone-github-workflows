@@ -1,3 +1,4 @@
+---
 name: Release & Version Management
 
 on:
@@ -33,7 +34,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    if: >
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true)
 
     steps:
       - name: Checkout code
@@ -60,19 +65,22 @@ jobs:
       - name: Get previous tag
         id: prev_tag
         run: |
+          get_prev_tag() {
+            git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo ""
+          }
           if [[ "${{ steps.trigger.outputs.type }}" == "manual" ]]; then
             echo "version=${{ github.event.inputs.version_bump }}" >> $GITHUB_OUTPUT
             echo "is_manual=true" >> $GITHUB_OUTPUT
           elif [[ "${{ steps.trigger.outputs.type }}" == "tag" ]]; then
-            previous_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            previous_tag=$(get_prev_tag)
             echo "previous_tag=$previous_tag" >> $GITHUB_OUTPUT
             echo "is_manual=false" >> $GITHUB_OUTPUT
           elif [[ "${{ steps.trigger.outputs.type }}" == "pr_merge" ]]; then
-            previous_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            previous_tag=$(get_prev_tag)
             echo "previous_tag=$previous_tag" >> $GITHUB_OUTPUT
             echo "is_manual=false" >> $GITHUB_OUTPUT
           elif [[ "${{ steps.trigger.outputs.type }}" == "branch_push" ]]; then
-            previous_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            previous_tag=$(get_prev_tag)
             echo "previous_tag=$previous_tag" >> $GITHUB_OUTPUT
             echo "is_manual=false" >> $GITHUB_OUTPUT
           fi
@@ -88,7 +96,15 @@ jobs:
               echo "lines_changed=0" >> $GITHUB_OUTPUT
               echo "bump_type=minor" >> $GITHUB_OUTPUT
             else
-              total_lines=$(git diff --stat ${{ steps.prev_tag.outputs.previous_tag }}..HEAD -- '*.yml' '*.yaml' '*.json' '*.ts' '*.js' '*.py' '*.go' '*.java' | tail -1 | awk '{print $4}' | tr -d ',')
+              total_lines=$(
+                git diff --stat \
+                  ${{ steps.prev_tag.outputs.previous_tag }}..HEAD \
+                  -- '*.yml' '*.yaml' '*.json' '*.ts' '*.js' \
+                  -- '*.py' '*.go' '*.java' \
+                  | tail -1 \
+                  | awk '{print $4}' \
+                  | tr -d ','
+              )
               if [[ -z "$total_lines" ]]; then
                 total_lines=0
               fi
